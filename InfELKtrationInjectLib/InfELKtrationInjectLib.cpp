@@ -7,7 +7,7 @@
 void injectMain() {
 	HANDLE hFile;
 
-	std::cout << "inject main" << std::endl;
+	std::cout << "inject main2" << std::endl;
 
 	hFile = CreateFileA("C:\\test.txt", GENERIC_WRITE, NULL, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	
