@@ -14,9 +14,6 @@
 
 BOOL inject_dll();
 void print_error(const char*);
-DWORD_PTR get_dll_base_addr(DWORD pid, TCHAR* szDllName);
-
-BOOL WINAPI Inject(DWORD processID, PCWSTR sourceDLL);
 
 int main()
 {
@@ -31,8 +28,7 @@ BOOL inject_dll() {
     //TCHAR targetProcess[MAX_PATH] = TEXT("elastic-agent.exe");
     TCHAR targetProcess[MAX_PATH] = TEXT("powershell.exe");
     TCHAR targetDll[MAX_PATH] = TEXT("KERNEL32.DLL");
-    //CHAR dllFilename[DLL_FILEPATH_MAX_LENGTH] = "C:\\Users\\Administrator\\source\\repos\\InfELKtrationInject\\x64\\Debug\\InfELKtrationInjectLib.dll";
-    CHAR dllFilename[DLL_FILEPATH_MAX_LENGTH] = "C:\\test.dll";
+    CHAR dllFilename[DLL_FILEPATH_MAX_LENGTH] = "C:\\Users\\Administrator\\source\\repos\\InfELKtrationInject\\x64\\Debug\\InfELKtrationInjectLib.dll";
     DWORD targetPid = 0;
     LPVOID szDllFilepath;
     DWORD_PTR target_kernel32_base;
@@ -103,7 +99,7 @@ BOOL inject_dll() {
 
     puts("executed DLL in target process");
 
-    VirtualFreeEx(hProcess, (LPVOID)szDllFilepath, 0, MEM_RELEASE);
+    //VirtualFreeEx(hProcess, (LPVOID)szDllFilepath, 0, MEM_RELEASE); // this will crash the process, i haven't a clue why
     CloseHandle(hProcess);
 
     return true;
