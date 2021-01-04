@@ -1,17 +1,18 @@
 #include "pch.h"
 #include "InfELKtrationInjectLib.h"
-#include <fileapi.h>
+#include "Logger.h"
+#include "Patcher.h"
 
 #include <iostream>
 
 void injectMain() {
-	HANDLE hFile;
+	Logger::Info("Initializing injection code");
 
-	std::cout << "inject main2" << std::endl;
+	DWORD_PTR textBase = 0x401000;
+	SIZE_T textSize = 0x2137000;
 
-	hFile = CreateFileA("C:\\test.txt", GENERIC_WRITE, NULL, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	Patcher::EnableRwxOnSection((LPVOID)0x401000, 0x2137000);
+	Patcher::NopRange(0xac6d5a, 3);
 	
-	WriteFile(hFile, "test", 4, NULL, NULL);
-
-	CloseHandle(hFile);
+	Logger::Info("Exiting");
 }

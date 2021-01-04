@@ -1,6 +1,5 @@
 #include <iostream>
 #include <windows.h>
-#include <InfELKtrationInjectLib.h>
 #include <memoryapi.h>
 #include <processthreadsapi.h>
 #include <TlHelp32.h>
