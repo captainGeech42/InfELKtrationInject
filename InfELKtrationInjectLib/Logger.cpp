@@ -5,13 +5,14 @@
 
 void Logger::writeLogMessage(const char* type, const char* format, va_list arg) {
 	SYSTEMTIME systemTime;
-	DWORD pid;
+	DWORD pid, tid;
 	char logFilepath[1024];
 	FILE* fp;
 
 	pid = GetCurrentProcessId();
+	tid = GetCurrentThreadId();
 
-	snprintf(logFilepath, 1024, "C:\\inject_logs\\filebeat_inject_%d.log", pid);
+	snprintf(logFilepath, 1024, "C:\\inject_logs\\filebeat_inject_p%d_t%d.log", pid, tid);
 
 	if (fopen_s(&fp, logFilepath, "a") != 0) return;
 	if (!fp) return;
