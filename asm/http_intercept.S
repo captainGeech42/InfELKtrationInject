@@ -44,7 +44,7 @@ pop     %r8
 mov     0x18(%rsp), %rdx    // resp data
 mov     0x58(%rsp), %rcx    // req data
 mov     (%rcx), %rcx
-mov     0x88(%r8), %rcx     // api key
+mov     0x88(%rsp), %rcx     // api key
 
 // preserve existing stack at the bottom of the allocated region
 mov     %rsp, (%rax)
