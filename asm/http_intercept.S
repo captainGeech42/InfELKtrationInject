@@ -24,7 +24,7 @@ xor     %rcx, %rcx  // ProcessHandle (NtCurrentProcess() == -1)
 sub     $0x1, %rcx
 
 mov     $0x66420000, %r10
-call    *%r10
+call    *(%r10)
 
 // new stack is in %rax
 mov     %rax, %r10
@@ -61,14 +61,26 @@ xor     %rbp, %rbp
 push    %rax
 
 // call the C code
-// this addr will be dynamically inserted by the injection DLL
-mov     $0xaabbccddeeff1122, %r9
-call    *%r9
+// the HTTP intercept C code is in the function table at offset 0x100
+mov     $0x66420100, %r9
+call    *(%r9)
 
 // restore stack
 pop     %r9
 mov     (%r9), %rsp
 mov     0x8(%r9), %rbp
+
+// free allocated stack
+// NtFreeVirtualMemory(-1, %r9, 0, 0x8000)
+// function ptr is at 0x66420008
+mov     %r9, %rdx       // BaseAddress
+xor     %rcx, %rcx      // ProcessHandle
+sub     $0x1, %rcx
+xor     %r8, %r8        // RegionSize
+mov     $0x8000, %r9    // FreeType (MEM_RELEASE)
+
+mov     $0x66420008, %r10
+call    *(%r10)
 
 // restore registers if need be here
 
@@ -88,3 +100,7 @@ mov     0x8(%r9), %rbp
 .byte 0x54
 .byte 0x24
 .byte 0x28
+
+// jump back to existing code
+mov     $0xa8ccc0, %r8
+jmp     *%r8
