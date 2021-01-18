@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Patcher.h"
 #include "Logger.h"
+#include "HttpIntercept.h"
 
 bool Patcher::EnableRwxOnSection(LPVOID base, SIZE_T size) {
 	DWORD oldProtections;
@@ -44,41 +45,92 @@ void Patcher::NopRange(DWORD_PTR addr, SIZE_T count) {
 	}
 }
 
-bool Patcher::TrampolineFunction(PatchTarget *target, SIZE_T padding) {
+bool Patcher::InstallPatch(PatchTarget *target) {
 	errno_t ret;
 
 	// allocate memory to move the function to
-	target->reallocSize = target->origSize + padding;
-	target->reallocBaseAddr = VirtualAlloc(NULL, target->reallocSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-	if (!target->reallocBaseAddr) {
-		Logger::Error("Failed to allocate memory for function trampoline");
+	target->patchAddr = VirtualAlloc(NULL, target->patchSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (!target->patchAddr) {
+		Logger::Error("Failed to allocate memory for patch");
 		Logger::LastError();
 		return false;
 	}
 
-	Logger::Info("Allocated 0x%x bytes at 0x%p for function trampoline", target->reallocSize, target->reallocBaseAddr);
+	Logger::Info("Allocated 0x%x bytes at 0x%p for patch", target->patchSize, target->patchAddr);
 
 	// copy the function over
-	if ((ret = memcpy_s(target->reallocBaseAddr, target->reallocSize, target->origBaseAddr, target->origSize)) != 0) {
-		Logger::Error("Failed to copy function from 0x%p to 0x%p, freeing allocated memory (error code: %d)", target->origBaseAddr, target->reallocBaseAddr, ret);
+	if ((ret = memcpy_s(target->patchAddr, target->patchSize, target->patchContents, target->patchSize)) != 0) {
+		Logger::Error("Failed to copy patch contents from 0x%p to 0x%p, freeing allocated memory (error code: %d)", target->patchContents, target->patchAddr, ret);
 
-		VirtualFree(target->reallocBaseAddr, NULL, MEM_RELEASE);
+		VirtualFree(target->patchAddr, NULL, MEM_RELEASE);
 		return false;
 	}
 	else {
-		Logger::Info("Copied function from 0x%p to 0x%p", target->origBaseAddr, target->reallocBaseAddr);
+		Logger::Info("Copied patch contents from 0x%p to 0x%p", target->patchContents, target->patchAddr);
 	}
 
 	// modify existing function
 	// fun fact, this is 100% the worst way to do this but idk a better way (and im lazy)
 	// movabs r8, 0xaabbccddeeff1122 => 49 b8 22 11 ff ee dd cc bb aa
 	// jmp r8                        => 41 ff e0
-	// int 3                         => cc
-	*(SHORT*)target->origBaseAddr = (SHORT)0xb849;
-	*(DWORD_PTR*)((DWORD_PTR*)(target->origBaseAddr) + 2) = (DWORD_PTR)target->reallocBaseAddr;
-	*(DWORD*)((DWORD*)(target->origBaseAddr) + 10) = 0xcce0ff41;
+	unsigned char patch[] = {
+		0x49, 0xb8, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x41, 0xff, 0xe0
+	};
+	//*(SHORT*)target->targetAddr = (SHORT)0xb849;
+	//*(DWORD_PTR*)((DWORD_PTR*)(target->targetAddr) + 2) = (DWORD_PTR)target->patchAddr;
+	//*(SHORT*)((SHORT*)(target->targetAddr) + 10) = (SHORT)0xff41;
+	//*(BYTE*)((BYTE*)(target->targetAddr) + 12) = (BYTE)0xe0;
+	*(DWORD_PTR*)(patch + 2) = (DWORD_PTR)target->patchAddr;
+	memcpy_s(target->targetAddr, 13, patch, 13);
 
-	Logger::Info("Installed trampoline at 0x%p", target->reallocBaseAddr);
+	Logger::Info("Installed trampoline at 0x%p", target->targetAddr);
 
+	return true;
+}
+
+bool Patcher::ConfigureFunctionTable() {
+	// inject code expected some functions to be available for them to use at 0x66420000
+	// this function sets that table up
+	// if allocating at 0x66420000 fails, return false (which blocks installing the patches)
+
+	DWORD_PTR *table;
+	HMODULE hTmp;
+
+	const char* targetFunctions[] = {
+		"NtAllocateVirtualMemory",
+		"NtFreeVirtualMemory"
+	};
+	const int numFuncs = 2;
+
+	// allocate memory for the function table
+	table = (DWORD_PTR *)VirtualAlloc((LPVOID)FUNCTION_TABLE_ADDR, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	if (!table) {
+		Logger::Error("Failed to allocate function table");
+		Logger::LastError();
+		return false;
+	}
+
+	// get a handle to ntdll
+	hTmp = GetModuleHandleA("ntdll");
+	if (!hTmp) {
+		Logger::Error("Failed to get ntdll module handle");
+		Logger::LastError();
+		return false;
+	}
+
+	// add all of the ntdll functions to the function table
+	for (int i = 0; i < numFuncs; i++) {
+		table[i] = (DWORD_PTR)GetProcAddress(hTmp, targetFunctions[i]);
+		if (!table[i]) {
+			Logger::Error("Failed to get address of %s", targetFunctions[i]);
+			Logger::LastError();
+			return false;
+		}
+	}
+
+	// add the high level patch code to the table
+	table[0x100/8] = (DWORD_PTR)HttpIntercept;
+
+	Logger::Info("Successfully configured function table at 0x%p", FUNCTION_TABLE_ADDR);
 	return true;
 }

@@ -152,6 +152,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
+    <ClInclude Include="HttpIntercept.h" />
     <ClInclude Include="InfELKtrationInjectLib.h" />
     <ClInclude Include="Logger.h" />
     <ClInclude Include="Patcher.h" />
@@ -159,6 +160,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="HttpIntercept.cpp" />
     <ClCompile Include="InfELKtrationInjectLib.cpp" />
     <ClCompile Include="Logger.cpp" />
     <ClCompile Include="Patcher.cpp" />
