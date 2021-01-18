@@ -99,3 +99,7 @@ call    *%r10
 .byte 0x54
 .byte 0x24
 .byte 0x28
+
+// jump back to existing code
+mov     $0xa8ccc0, %r8
+jmp     *%r8
