@@ -13,25 +13,43 @@ main:
 // allocate a stack to use
 // 0x66420000 is a pointer to ntdll!NtAllocateVirtualMemory, which will make the appropriate syscall
 // ^^ is allocated by the main injected DLL, this code won't ever be executed if that static alloc fails
-// NtAllocateVirtualMemory(-1, 0, 0, &stack, 0x3000, 0x4)
-push    $0x4        // Protect (PAGE_READWRITE)
-push    $0x3000     // AllocationType (MEM_COMMIT | MEM_RESERVE)
+// NtAllocateVirtualMemory(-1, &stack, 0, &stack, 0x3000, 0x4)
 push    $0x2000     // RegionSize
 mov     %rsp, %r9
+push    $0x0        // BaseAddress
+mov     %rsp, %rdx
+push    $0x4        // Protect (PAGE_READWRITE)
+push    $0x3000     // AllocationType (MEM_COMMIT | MEM_RESERVE)
+mov     %rsp, %r9
 xor     %r8, %r8    // ZeroBits
-xor     %rdx, %rdx  // BaseAddress
 xor     %rcx, %rcx  // ProcessHandle (NtCurrentProcess() == -1)
 sub     $0x1, %rcx
+
+// yes i know i dont know what i am doing but this fixes the stack alignment
+push    $0xaa
+push    $0xaa
+push    $0xaa
+push    $0xaa
 
 mov     $0x66420000, %r10
 call    *(%r10)
 
-// new stack is in %rax
-mov     %rax, %r10
+pop     %r8
+pop     %r8
+pop     %r8
+pop     %r8
 
 // reset stack
 pop     %r8
 pop     %r8
+
+// save new stack to rax
+pop     %rax
+
+// save a copy of the base addr
+mov     %rax, %r10
+
+// finish stack reset
 pop     %r8
 
 // save pointers to data we care about
@@ -41,17 +59,20 @@ pop     %r8
 // [rsp+0x18]: pointer to resp data
 // [rsp+0x58]: pointer to pointer to to req data
 // [rsp+0x88]: pointer to api key
+// TODO:
+// there might be an edge case where the req data dereference fails if there wasn't a post body, i'm not sure
+// the first request that generates a security log first generates at GET /, which looks different on the stack
 mov     0x18(%rsp), %rdx    // resp data
 mov     0x58(%rsp), %rcx    // req data
 mov     (%rcx), %rcx
-mov     0x88(%rsp), %rcx     // api key
+mov     0x88(%rsp), %r8     // api key
 
 // preserve existing stack at the bottom of the allocated region
 mov     %rsp, (%rax)
 mov     %rbp, 0x8(%rax)
 
 // setup the new stack
-add     (%r9), %r10     // add the amount of memory allocated to the base addr
+add     $0x2000, %r10   // add the amount of memory allocated to the base addr
                         // this puts us at the top of the allocated region
 sub     $0x20, %r10     // make some head room
 mov     %r10, %rsp      // set the new stack frame     
