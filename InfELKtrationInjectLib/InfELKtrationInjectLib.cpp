@@ -6,6 +6,8 @@
 #include <iostream>
 
 void injectMain() {
+	PatchTarget esClientPublishEvents;
+
 	Logger::Info("Initializing injection code");
 
 	DWORD_PTR textBase = 0x401000;
@@ -13,6 +15,11 @@ void injectMain() {
 
 	Patcher::EnableRwxOnSection((LPVOID)0x401000, 0x2137000);
 	Patcher::NopRange(0xac6d5a, 3);
+
+	esClientPublishEvents.origBaseAddr = (LPVOID)0xac6d60;
+	esClientPublishEvents.origSize = 0xc4f;
+
+	Patcher::TrampolineFunction(&esClientPublishEvents);
 	
 	Logger::Info("Exiting");
 }

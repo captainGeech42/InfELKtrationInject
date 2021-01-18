@@ -43,3 +43,42 @@ void Patcher::NopRange(DWORD_PTR addr, SIZE_T count) {
 		Patcher::NopByte(addr + i);
 	}
 }
+
+bool Patcher::TrampolineFunction(PatchTarget *target, SIZE_T padding) {
+	errno_t ret;
+
+	// allocate memory to move the function to
+	target->reallocSize = target->origSize + padding;
+	target->reallocBaseAddr = VirtualAlloc(NULL, target->reallocSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (!target->reallocBaseAddr) {
+		Logger::Error("Failed to allocate memory for function trampoline");
+		Logger::LastError();
+		return false;
+	}
+
+	Logger::Info("Allocated 0x%x bytes at 0x%p for function trampoline", target->reallocSize, target->reallocBaseAddr);
+
+	// copy the function over
+	if ((ret = memcpy_s(target->reallocBaseAddr, target->reallocSize, target->origBaseAddr, target->origSize)) != 0) {
+		Logger::Error("Failed to copy function from 0x%p to 0x%p, freeing allocated memory (error code: %d)", target->origBaseAddr, target->reallocBaseAddr, ret);
+
+		VirtualFree(target->reallocBaseAddr, NULL, MEM_RELEASE);
+		return false;
+	}
+	else {
+		Logger::Info("Copied function from 0x%p to 0x%p", target->origBaseAddr, target->reallocBaseAddr);
+	}
+
+	// modify existing function
+	// fun fact, this is 100% the worst way to do this but idk a better way (and im lazy)
+	// movabs r8, 0xaabbccddeeff1122 => 49 b8 22 11 ff ee dd cc bb aa
+	// jmp r8                        => 41 ff e0
+	// int 3                         => cc
+	*(SHORT*)target->origBaseAddr = (SHORT)0xb849;
+	*(DWORD_PTR*)((DWORD_PTR*)(target->origBaseAddr) + 2) = (DWORD_PTR)target->reallocBaseAddr;
+	*(DWORD*)((DWORD*)(target->origBaseAddr) + 10) = 0xcce0ff41;
+
+	Logger::Info("Installed trampoline at 0x%p", target->reallocBaseAddr);
+
+	return true;
+}
