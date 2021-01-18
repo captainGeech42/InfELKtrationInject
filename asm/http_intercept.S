@@ -70,6 +70,17 @@ pop     %r9
 mov     (%r9), %rsp
 mov     0x8(%r9), %rbp
 
+// free allocated stack
+// NtFreeVirtualMemory(-1, %r9, 0, 0x8000)
+// function ptr is at 0x66420008
+mov     %r9, %rdx       // BaseAddress
+xor     %rcx, %rcx      // ProcessHandle
+sub     $0x1, %rcx
+xor     %r8, %r8        // RegionSize
+mov     $0x8000, %r9    // FreeType (MEM_RELEASE)
+mov     $0x66420008, %r10
+call    *%r10
+
 // restore registers if need be here
 
 // existing code that got replaced
