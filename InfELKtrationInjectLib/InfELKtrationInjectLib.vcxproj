@@ -154,6 +154,7 @@
     <ClInclude Include="framework.h" />
     <ClInclude Include="HttpIntercept.h" />
     <ClInclude Include="InfELKtrationInjectLib.h" />
+    <ClInclude Include="LibConstants.h" />
     <ClInclude Include="Logger.h" />
     <ClInclude Include="Patcher.h" />
     <ClInclude Include="pch.h" />

