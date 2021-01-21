@@ -40,7 +40,7 @@ int main(int argc, char **argv)
     if (argc != 4) {
         Logger::Error("Not enough arguments!");
         Logger::Error("Usage: %s [path to InfELKtrationInjectLib.dll] [URL to ElasticSearch server] [ElasticSearch API key]", argv[0]);
-        Logger::Error("Example: .\\InfELKtrationInject.exe .\\InfELKtrationInjectLib.dll https://my.es-server.lan:9200 asdfzxcvasdf234232");
+        Logger::Error("Example: .\\InfELKtrationInject.exe C:\\path\\to\\InfELKtrationInjectLib.dll https://my.es-server.lan:9200 asdfzxcv:asdf234232");
         Logger::Error("You can get the URL/API key from C:\\Program Files\\Elastic\\Agent\\data\\elastic-agent-xxxxxx\\action_store.yml, at something like policy.outputs.default at the bottom");
         
         return 2;
