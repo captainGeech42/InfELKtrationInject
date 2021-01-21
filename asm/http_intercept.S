@@ -1,7 +1,10 @@
 .globl main
 
 // this patch is intended to be written at 0xa8ccba in filebeat.exe 7.10.1
-// sha256 of filebeat.exe: CC98DFCE42FFAB9BD210AD94D40634326FF2469E0A40F6647353B011390666BC
+// sha256 of filebeat.exe: cc98dfce42ffab9bd210ad94d40634326ff2469e0a40f6647353b011390666bc
+
+// also compatible with filebeat.exe 7.10.2, at 0xa8ce81
+// sha256 of filebeat.exe: 429e73e13dc273586ae13b8e04a8d95eb3dbfbae804eb94a14639276ab92998a
 
 main:
 
