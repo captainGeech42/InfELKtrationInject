@@ -5,31 +5,18 @@
 
 void Logger::writeLogMessage(const char* type, const char* format, va_list arg) {
 	SYSTEMTIME systemTime;
-	DWORD pid, tid;
-	char logFilepath[1024];
-	FILE* fp;
-
-	pid = GetCurrentProcessId();
-	tid = GetCurrentThreadId();
-
-	snprintf(logFilepath, 1024, "C:\\inject_logs\\filebeat_inject_p%d_t%d.log", pid, tid);
-
-	if (fopen_s(&fp, logFilepath, "a") != 0) return;
-	if (!fp) return;
 
 	GetSystemTime(&systemTime);
 
-	fprintf_s(fp, "%d/%02d/%02d %02d:%02d:%02d [%s] ", systemTime.wYear,
+	printf_s("%d/%02d/%02d %02d:%02d:%02d [%s] ", systemTime.wYear,
 		systemTime.wMonth,
 		systemTime.wDay,
 		systemTime.wHour,
 		systemTime.wMinute,
 		systemTime.wSecond,
 		type);
-	vfprintf_s(fp, format, arg);
-	fprintf(fp, "\n");
-
-	fclose(fp);
+	vprintf_s(format, arg);
+	printf("\n");
 }
 
 void Logger::Info(const char* format, ...) {
@@ -64,12 +51,12 @@ void Logger::Error(const char* format, ...) {
 
 void Logger::LastError() {
 	DWORD eNum;
-    char error[256];
+	char error[256];
 
-    eNum = GetLastError();
-    FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, eNum, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), error, 256, NULL);
+	eNum = GetLastError();
+	FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, eNum, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), error, 256, NULL);
 
-    error[strcspn(error, ".\r\n")] = 0;
+	error[strcspn(error, ".\r\n")] = 0;
 
 	Logger::Error("Error message (%d): %s", eNum, error);
 }

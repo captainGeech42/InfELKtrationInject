@@ -33,6 +33,12 @@
     <ClInclude Include="HttpIntercept.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="LibConstants.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -53,5 +59,10 @@
     <ClCompile Include="HttpIntercept.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="InfELKtrationInjectLib.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

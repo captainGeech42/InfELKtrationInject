@@ -70,16 +70,11 @@ bool Patcher::InstallPatch(PatchTarget *target) {
 	}
 
 	// modify existing function
-	// fun fact, this is 100% the worst way to do this but idk a better way (and im lazy)
 	// movabs r8, 0xaabbccddeeff1122 => 49 b8 22 11 ff ee dd cc bb aa
 	// jmp r8                        => 41 ff e0
 	unsigned char patch[] = {
 		0x49, 0xb8, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x41, 0xff, 0xe0
 	};
-	//*(SHORT*)target->targetAddr = (SHORT)0xb849;
-	//*(DWORD_PTR*)((DWORD_PTR*)(target->targetAddr) + 2) = (DWORD_PTR)target->patchAddr;
-	//*(SHORT*)((SHORT*)(target->targetAddr) + 10) = (SHORT)0xff41;
-	//*(BYTE*)((BYTE*)(target->targetAddr) + 12) = (BYTE)0xe0;
 	*(DWORD_PTR*)(patch + 2) = (DWORD_PTR)target->patchAddr;
 	memcpy_s(target->targetAddr, 13, patch, 13);
 

@@ -2,4 +2,4 @@
 
 #include "Logger.h"
 
-void HttpIntercept(char* reqBytes, char* respBytes, char* apiKey);
+void HttpIntercept(PCSTR reqBytes, PCSTR respBytes, PCSTR apiKey);
